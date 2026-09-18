@@ -14,9 +14,53 @@ Live on mainnet: [`0xA2b53f0c5c700E42020d91a1c0E481389dA1E197`](https://ethersca
 certificate is in the test. Want to *do* something with a proven chip? [clawd-crops](https://github.com/clawdbotatg/clawd-crops)
 lets one harvest 5 CROPS every 5 hours against this registry. dApp: [clawd-trust-m.vercel.app](https://clawd-trust-m.vercel.app).
 
-![the dApp verifying a chip signature against mainnet](docs/dapp-verified.png)
+## The walkthrough
 
-## How the proof works
+### 1. The chip
+
+![Adafruit Trust M breakout: a 3x3 mm Infineon OPTIGA Trust M with GND, Vcc, SDA, SCL, Reset pins and STEMMA QT connectors](docs/1-chip.jpg)
+
+The small square in the middle is the Infineon OPTIGA Trust M, a secure element. Inside it is a P-256
+private key that was generated in the chip at the factory and cannot be read out, over any interface, ever.
+Infineon signed an X.509 certificate for the matching public key and burned it into the chip next to the
+key. The chip talks I2C over the STEMMA QT cable to a Raspberry Pi Pico. The Pico runs MicroPython and a
+[driver](firmware/trustm.py) written from Infineon's protocol spec, no vendor SDK.
+
+### 2. Ask the chip to sign something
+
+![the page: a text box with "the bear is sticky with honey" and an Ask the chip to sign button](docs/2-ask.png)
+
+Type anything on the page and press **Ask the chip to sign**. The page hashes the text with keccak256 and
+puts a request in a small queue (`/api/sign`). Nothing has touched the chain yet.
+
+### 3. The device asks you
+
+![the Pico in its case showing the phrase, its keccak hash, and A SIGN / B REFUSE](docs/3-sign.jpg)
+
+The Pico polls that queue over WiFi, sees the request and shows the phrase and its hash on the screen. The
+message shown is what gets signed: the hash on the screen is the exact 32 bytes that go into the chip. Press
+**A** to sign, **B** to refuse. Nothing signs without a finger on the button.
+
+### 4. The chip signs, mainnet answers
+
+![the Pico showing REAL CHIP, TrustMAttest says true, ethereum mainnet](docs/4-real-chip.jpg)
+
+On **A** the Pico sends the 32-byte hash into the Trust M over I2C (`CalcSign` with key slot E0F0). The chip
+signs it with the key that never left the silicon and returns `r, s`. The Pico posts the signature and the
+chip's public key back to the queue. The server calls `isChipSignature(x, y, hash, r, s)` on the mainnet
+contract, a free view call, and hands the boolean back to the device. **REAL CHIP** means the contract
+returned true.
+
+### 5. The page shows the proof
+
+![the page: "the bear is sticky with honey", green "Yes. A real Infineon Trust M signed this, and the chain can prove it", three check marks, r and s](docs/5-verified.png)
+
+The page does its own read of the same contract and shows the chain of trust it stands on: Infineon's CA key
+is pinned in the contract, that CA signed the certificate holding this chip's key, and this chip's key signed
+the keccak256 of the message. The `r` and `s` at the bottom are the raw signature. Anyone can re-run that
+view call with them, forever.
+
+## What happens on chain
 
 ```
 Infineon ECC Root CA
@@ -26,10 +70,21 @@ Infineon ECC Root CA
                  └─ signs  your hash                    (CalcSign over I2C)
 ```
 
-`attest(cert, ...)` hashes the certificate body with SHA-256 and checks the CA's ECDSA signature with the
-P-256 precompile (RIP-7212 / EIP-7951, live on mainnet and the L2s; OpenZeppelin's library falls back to
-Solidity elsewhere). It pulls the public key out of the signed bytes and records it. `isChipSignature(x, y,
-hash, r, s)` is then a P-256 check against a recorded key. About 65k gas to attest, a view call to verify.
+Two functions in [`TrustMAttest.sol`](packages/foundry/contracts/TrustMAttest.sol):
+
+**`attest(cert, tbsStart, tbsLen, pkOffset, r, s)`**, once per chip. The caller passes the chip's factory
+certificate as raw DER bytes plus offsets saying where the signed part (the TBSCertificate) and the public
+key sit inside it. The contract hashes the signed part with SHA-256 and checks Infineon's ECDSA signature
+over it against the CA 101 public key hardcoded as `CA_X` / `CA_Y`, using the P-256 precompile (RIP-7212 /
+EIP-7951, live on mainnet and the L2s; OpenZeppelin's library falls back to Solidity elsewhere). If the
+signature holds, it pulls the 64-byte public key out of the signed bytes and records `keccak256(x, y)` as
+attested. The offsets can't be used to cheat: the CA signature covers exactly the range given, so a wrong
+range fails, and the key must sit right after the fixed 27-byte P-256 SubjectPublicKeyInfo header inside
+that range. About 65k gas.
+
+**`isChipSignature(x, y, hash, r, s)`**, any time, a view. True when `(x, y)` was attested and is a valid
+P-256 signature over `hash`. That is the whole question the contract answers. Signatures with `s > N/2` are
+folded to `N - s` on both sides, since OpenZeppelin rejects high-s and Infineon's CA doesn't normalise.
 
 Limits, plainly: this proves the chip is genuine Infineon silicon. It does not prove who owns the chip, and
 the factory certificate says "Infineon IoT Node", nothing about you.
