@@ -6,17 +6,10 @@ import type { NextPage } from "next";
 import { encodeAbiParameters, keccak256 } from "viem";
 import deployedContracts from "~~/contracts/deployedContracts";
 import { useScaffoldReadContract, useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
+import { type Signature, messageMatchesHash, parseSignature, signatureVerdict } from "~~/utils/signature";
 
 const CONTRACT = deployedContracts[1].TrustMAttest.address;
 
-type Sig = {
-  message?: string;
-  hash: `0x${string}`;
-  r: `0x${string}`;
-  s: `0x${string}`;
-  chipX: `0x${string}`;
-  chipY: `0x${string}`;
-};
 type Cert = {
   issuer?: string;
   chipX: `0x${string}`;
@@ -47,7 +40,11 @@ const short = (h?: string) => (h ? `${h.slice(0, 10)}…${h.slice(-6)}` : "");
 // tools/chip.py ui opens this page as /#sig=<url-encoded JSON>; the hash never reaches the server.
 const sigFromUrl = () => {
   const m = window.location.hash.match(/^#sig=(.*)$/);
-  return m ? decodeURIComponent(m[1]) : "";
+  try {
+    return m ? decodeURIComponent(m[1]) : "";
+  } catch {
+    return "";
+  }
 };
 
 type Pending = { id: string; message: string; hash: `0x${string}` };
@@ -58,11 +55,14 @@ const Home: NextPage = () => {
   const [message, setMessage] = useState("hello world");
   const [asking, setAsking] = useState<Pending | undefined>();
   const [askError, setAskError] = useState("");
-  const [serverVerdict, setServerVerdict] = useState<boolean | undefined>(); // what the queue saw on mainnet
+  const [serverResult, setServerResult] = useState<{ signature: string; verdict?: boolean }>();
   useEffect(() => {
     const load = () => {
       const s = sigFromUrl();
-      if (s) setSigText(s);
+      if (s) {
+        setSigText(s);
+        setServerResult(undefined);
+      }
     };
     load();
     window.addEventListener("hashchange", load);
@@ -92,10 +92,13 @@ const Home: NextPage = () => {
       if (!r.ok) return;
       const j = await r.json();
       if (j.status === "signed") {
-        const s: Sig = { message: j.message, hash: j.hash, r: j.r, s: j.s, chipX: j.chipX, chipY: j.chipY };
-        setServerVerdict(typeof j.verdict === "boolean" ? j.verdict : undefined);
+        const s: Signature = { message: j.message, hash: j.hash, r: j.r, s: j.s, chipX: j.chipX, chipY: j.chipY };
+        setServerResult({
+          signature: JSON.stringify(s),
+          verdict: typeof j.verdict === "boolean" ? j.verdict : undefined,
+        });
         setSigText(JSON.stringify(s));
-        window.location.hash = "sig=" + encodeURIComponent(JSON.stringify(s));
+        window.history.replaceState(null, "", "#sig=" + encodeURIComponent(JSON.stringify(s)));
         setAsking(undefined);
       } else if (j.status === "refused") {
         setAskError("refused on the chip");
@@ -105,21 +108,26 @@ const Home: NextPage = () => {
     return () => clearInterval(t);
   }, [asking]);
 
-  const sig = parse<Sig>(sigText);
+  const sig = parseSignature(sigText);
+  const messageMismatch = !!sig && !messageMatchesHash(sig);
   const cert = parse<Cert>(certText);
-  const { data: chainVerdict, isFetching } = useScaffoldReadContract({
+  const {
+    data: chainVerdict,
+    isFetching,
+    isError,
+  } = useScaffoldReadContract({
     contractName: "TrustMAttest",
     functionName: "isChipSignature",
     args: sig
       ? [sig.chipX, sig.chipY, sig.hash, sig.r, sig.s]
       : [undefined, undefined, undefined, undefined, undefined],
-    query: { enabled: !!sig },
+    query: { enabled: !!sig && !messageMismatch },
   });
   const { data: sigKeyAttested } = useScaffoldReadContract({
     contractName: "TrustMAttest",
     functionName: "attested",
     args: [keyId(sig?.chipX, sig?.chipY)],
-    query: { enabled: !!sig },
+    query: { enabled: !!sig && !messageMismatch },
   });
   const { data: certKeyAttested } = useScaffoldReadContract({
     contractName: "TrustMAttest",
@@ -130,7 +138,7 @@ const Home: NextPage = () => {
   const { writeContractAsync, isMining } = useScaffoldWriteContract({ contractName: "TrustMAttest" });
 
   // The browser's own read wins when it works; otherwise the queue's server-side read (blocked RPCs, no wallet).
-  const verdict = chainVerdict ?? serverVerdict;
+  const verdict = sig ? signatureVerdict(sig, isError ? undefined : chainVerdict, serverResult) : undefined;
   const settled = sig && !isFetching && verdict !== undefined;
   const step = (ok: boolean | undefined) => (ok === undefined ? "○" : ok ? "✓" : "✗");
 
@@ -153,16 +161,29 @@ const Home: NextPage = () => {
         <div className="card-body gap-4">
           {sig ? (
             <>
-              <div className="text-sm opacity-70">The chip signed</div>
+              <div className="text-sm opacity-70">
+                {sig.message === undefined ? "Submitted digest" : "Submitted message"}
+              </div>
               <div className="text-3xl font-mono font-bold break-words">&quot;{sig.message ?? "(hash only)"}&quot;</div>
-              <div className="font-mono text-xs opacity-70 break-all">keccak256 {sig.hash}</div>
-              {verdict === undefined ? (
+              <div className="font-mono text-xs opacity-70 break-all">
+                {sig.message === undefined ? "digest" : "keccak256"} {sig.hash}
+              </div>
+              {messageMismatch ? (
+                <div className="alert alert-error">
+                  This message does not match the signed hash. The signature does not prove this text.
+                </div>
+              ) : verdict === undefined && (isError || !isFetching) ? (
+                <div className="alert alert-warning">
+                  Verification unavailable. Try again when the connection is restored.
+                </div>
+              ) : verdict === undefined ? (
                 <div className="flex items-center gap-2">
                   <span className="loading loading-spinner" /> asking mainnet…
                 </div>
               ) : verdict ? (
                 <div className="alert alert-success text-lg">
-                  Yes. A real Infineon Trust M signed this, and the chain can prove it.
+                  Verified: an Infineon-certified chip key signed this{" "}
+                  {sig.message === undefined ? "digest" : "message hash"}.
                 </div>
               ) : sigKeyAttested === false ? (
                 <div className="alert alert-warning">
@@ -176,13 +197,22 @@ const Home: NextPage = () => {
                 <li>
                   {step(sigKeyAttested)} CA signed the factory certificate of chip key {short(sig.chipX)}
                 </li>
-                <li>{step(settled ? !!verdict : undefined)} chip key signed keccak256 of the message</li>
+                <li>
+                  {step(settled ? !!verdict : undefined)} chip key signed{" "}
+                  {sig.message === undefined ? "the supplied digest" : "keccak256 of the message"}
+                </li>
               </ul>
               <div className="text-xs opacity-70 font-mono break-all">
                 r {sig.r}
                 <br />s {sig.s}
               </div>
-              <button className="btn btn-ghost btn-sm self-start" onClick={() => setSigText("")}>
+              <button
+                className="btn btn-ghost btn-sm self-start"
+                onClick={() => {
+                  setSigText("");
+                  setServerResult(undefined);
+                }}
+              >
                 check another
               </button>
             </>
@@ -219,9 +249,14 @@ const Home: NextPage = () => {
             className="textarea textarea-bordered font-mono text-xs h-32"
             placeholder='{"message":"hello world","hash":"0x..","r":"0x..","s":"0x..","chipX":"0x..","chipY":"0x.."}'
             value={sigText}
-            onChange={e => setSigText(e.target.value)}
+            onChange={e => {
+              setSigText(e.target.value);
+              setServerResult(undefined);
+            }}
           />
-          {sigText && !sig && <div className="text-error text-sm">not valid JSON</div>}
+          {sigText && !sig && (
+            <div className="text-error text-sm">invalid signature: expected 32-byte hash, r, s, chipX and chipY</div>
+          )}
         </div>
       </details>
 

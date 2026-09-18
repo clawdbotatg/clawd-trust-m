@@ -1,15 +1,16 @@
 import { ChainWithAttributes, getAlchemyHttpUrl } from "./networks";
 import { CurrencyAmount, Token } from "@uniswap/sdk-core";
 import { Pair, Route } from "@uniswap/v2-sdk";
-import { Address, createPublicClient, fallback, http, parseAbi } from "viem";
+import { Address, createPublicClient, http, parseAbi } from "viem";
 import { mainnet } from "viem/chains";
 
 const alchemyHttpUrl = getAlchemyHttpUrl(mainnet.id);
-const rpcFallbacks = alchemyHttpUrl ? [http(alchemyHttpUrl), http()] : [http()];
-const publicClient = createPublicClient({
-  chain: mainnet,
-  transport: fallback(rpcFallbacks),
-});
+const publicClient = alchemyHttpUrl
+  ? createPublicClient({
+      chain: mainnet,
+      transport: http(alchemyHttpUrl),
+    })
+  : undefined;
 
 const ABI = parseAbi([
   "function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
@@ -25,6 +26,7 @@ export const fetchPriceFromUniswap = async (targetNetwork: ChainWithAttributes):
   ) {
     return 0;
   }
+  if (!publicClient) return 0;
   try {
     const DAI = new Token(1, "0x6B175474E89094C44Da98b954EedeAC495271d0F", 18);
     const TOKEN = new Token(

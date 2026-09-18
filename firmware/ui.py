@@ -83,10 +83,13 @@ def _hex(label, y, v):
 
 
 def confirm(text, digest):
-    _header("SIGN THIS?", YELLOW)
+    _header("SIGN HASH?", YELLOW)
     _message(text)
-    _hex("keccak", 158, digest.hex())
-    _hex("      ", 170, digest.hex()[28:56])
+    d.center_text("relay/host-provided text", 144, GREY)
+    # Show all 64 hex characters without clipping them behind a label.
+    h = digest.hex()
+    for i in range(3):
+        d.text(h[i * 28:(i + 1) * 28], 6, 158 + i * 12, WHITE)
     _bar(0, 118, "A  SIGN", GREEN)
     _bar(122, 118, "B  REFUSE", RED)
     d.show()
@@ -120,6 +123,13 @@ def refused(text):
 
 def verdict(text, ok):
     _init()                                          # called from a fresh exec on the host, after run()
+    if ok is None:
+        _header("UNAVAILABLE", YELLOW)
+        _message(text, 30, 70)
+        d.center_text("verification unavailable", 128, YELLOW)
+        d.center_text("no confirmed chain result", 160, WHITE)
+        d.show()
+        return
     c = GREEN if ok else RED
     _header("MAINNET", c)
     _message(text, 30, 70)

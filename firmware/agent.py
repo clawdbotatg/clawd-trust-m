@@ -95,15 +95,16 @@ def handle(req):
     x, y = chip_key()
     _json("POST", "/api/sign/" + rid, {"r": "0x%064x" % r, "s": "0x%064x" % s, "chipX": x, "chipY": y})
     t0 = time.ticks_ms()
-    while time.ticks_diff(time.ticks_ms(), t0) < VERDICT_WAIT_MS:       # the page checks mainnet and posts back
+    while time.ticks_diff(time.ticks_ms(), t0) < VERDICT_WAIT_MS:       # the server checks mainnet
         st = _json("GET", "/api/sign/" + rid)
-        if "verdict" in st:
-            ui.verdict(text, bool(st["verdict"]))
+        if st.get("status") == "signed":
+            result = st.get("verdict")
+            ui.verdict(text, result if isinstance(result, bool) else None)
             time.sleep(8)
             return
         time.sleep_ms(POLL_MS)
-    ui.verdict(text, False)
-    ui.d.center_text("no verdict from the page", 220, YELLOW)
+    ui.verdict(text, None)
+    ui.d.center_text("no verdict from the server", 220, YELLOW)
     ui.d.show()
     time.sleep(5)
 

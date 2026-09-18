@@ -1,6 +1,6 @@
 # clawd-trust-m
 
-Prove on chain that a signature came from a real chip, not software.
+Verify on chain a signature from an Infineon-certified chip key.
 
 The chip is an Infineon OPTIGA Trust M on an [Adafruit breakout](https://www.adafruit.com/product/4351),
 driven by a Raspberry Pi Pico. Every Trust M leaves the factory with a P-256 key that never leaves the
@@ -21,7 +21,7 @@ lets one harvest 5 CROPS every 5 hours against this registry. dApp: [clawd-trust
 ![Adafruit Trust M breakout: a 3x3 mm Infineon OPTIGA Trust M with GND, Vcc, SDA, SCL, Reset pins and STEMMA QT connectors](docs/1-chip.jpg)
 
 The small square in the middle is the Infineon OPTIGA Trust M, a secure element. Inside it is a P-256
-private key that was generated in the chip at the factory and cannot be read out, over any interface, ever.
+factory-provisioned private key designed to remain inside the secure element.
 Infineon signed an X.509 certificate for the matching public key and burned it into the chip next to the
 key. The chip talks I2C over the STEMMA QT cable to a Raspberry Pi Pico. The Pico runs MicroPython and a
 [driver](firmware/trustm.py) written from Infineon's protocol spec, no vendor SDK.
@@ -37,9 +37,11 @@ puts a request in a small queue (`/api/sign`). Nothing has touched the chain yet
 
 ![the Pico in its case showing the phrase, its keccak hash, and A SIGN / B REFUSE](docs/3-sign.jpg)
 
-The Pico polls that queue over WiFi, sees the request and shows the phrase and its hash on the screen. The
-message shown is what gets signed: the hash on the screen is the exact 32 bytes that go into the chip. Press
-**A** to sign, **B** to refuse. Nothing signs without a finger on the button.
+The Pico polls that queue over WiFi and displays relay-provided text alongside the supplied digest.
+It does not independently check that
+those two match. The full supplied 32-byte digest is what goes into the chip. Press **A** to sign, **B** to
+refuse. The interactive demo asks for button confirmation; USB signing and `--auto` can bypass that prompt.
+Button approval is a firmware behavior, not something the signature proves.
 
 ### 4. The chip signs, mainnet answers
 
@@ -55,7 +57,8 @@ returned true.
 
 ![the page: "the bear is sticky with honey", green "Yes. A real Infineon Trust M signed this, and the chain can prove it", three check marks, r and s](docs/5-verified.png)
 
-The page does its own read of the same contract and shows the chain of trust it stands on: Infineon's CA key
+The page checks that `keccak256(message)` matches the supplied hash, then reads the same contract.
+It shows the chain of trust it stands on: Infineon's CA key
 is pinned in the contract, that CA signed the certificate holding this chip's key, and this chip's key signed
 the keccak256 of the message. The `r` and `s` at the bottom are the raw signature. Anyone can re-run that
 view call with them, forever.
@@ -86,8 +89,15 @@ that range. About 65k gas.
 P-256 signature over `hash`. That is the whole question the contract answers. Signatures with `s > N/2` are
 folded to `N - s` on both sides, since OpenZeppelin rejects high-s and Infineon's CA doesn't normalise.
 
-Limits, plainly: this proves the chip is genuine Infineon silicon. It does not prove who owns the chip, and
-the factory certificate says "Infineon IoT Node", nothing about you.
+Limits, plainly: this verifies a signature from an Infineon-certified chip key, relying on Infineon's
+provisioning and the secure element protecting that key. It does not prove ownership, trusted Pico firmware,
+human approval, or a fresh interaction: an existing signature can be replayed. The factory certificate says
+"Infineon IoT Node", nothing about you. The contract does not check certificate expiry or revocation.
+
+Only the server computes relay verification results; callers cannot submit a verdict. If neither the browser
+nor the server can verify the signature, the page shows "Verification unavailable". The Pico similarly reports
+unavailable when the server cannot verify. The relay is still a demo queue without authentication: reachable
+clients can read pending messages, submit requests, or interfere with responses. Use non-sensitive messages.
 
 ## Hardware
 
@@ -133,9 +143,10 @@ yarn install && yarn start        # the page + the queue, on a laptop the Pico c
 
 Put `TRUSTM_RELAY = "http://<laptop ip>:3000"` plus `WIFI_SSID` / `WIFI_PASS` in `secrets.py` on the Pico and copy
 `firmware/*.py` over (`mpremote cp firmware/*.py :`). `main.py` runs `agent.py`: it joins WiFi and polls the
-queue. Open the page, type a message, press **Ask the chip to sign**. The hat shows the text and its hash. Press
-**A**. The chip signs, the signature goes back to the page, the page asks mainnet, goes green, and tells the
-hat, which shows REAL CHIP. **B** refuses. Everything stays on your LAN; the hosted copy at
+queue. Open the page, type a message, press **Ask the chip to sign**. The hat shows relay-provided text
+and a digest. Press **A**. The chip signs and the server checks the signature on mainnet. The page also
+verifies it independently; the hat displays the server result. **B** refuses. The local queue stays on
+your LAN, while chain verification uses Alchemy; the hosted copy at
 [clawd-trust-m.vercel.app](https://clawd-trust-m.vercel.app) has no queue unless you give it
 `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`.
 
@@ -166,9 +177,14 @@ cast call 0xA2b53f0c5c700E42020d91a1c0E481389dA1E197 \
 # contracts
 cd packages/foundry && forge test     # uses the real certificate and a real chip signature
 
+# regression checks (Node 22.15+ for the security test runner)
+yarn workspace @se-2/nextjs test:security
+
 # dApp
 yarn install && yarn start            # http://localhost:3000, paste the JSON from chip.py into the page
 ```
+
+Chain reads use Alchemy exclusively; there is no shared-key or public-RPC fallback in the frontend.
 
 Setup: put `ALCHEMY_API_KEY` (and `ETHERSCAN_API_KEY` for verification) in `packages/foundry/.env` and
 `NEXT_PUBLIC_ALCHEMY_API_KEY` in `packages/nextjs/.env.local`, both gitignored. `yarn start` honours a

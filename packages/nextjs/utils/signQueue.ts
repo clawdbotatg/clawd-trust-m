@@ -12,7 +12,7 @@ export type SignRequest = {
   s?: `0x${string}`;
   chipX?: `0x${string}`;
   chipY?: `0x${string}`;
-  verdict?: boolean; // what mainnet said, posted by the page so the Pico can show it
+  verdict?: boolean; // server verification of this exact signature; absent when verification is unavailable
 };
 
 const TTL_S = 600;
