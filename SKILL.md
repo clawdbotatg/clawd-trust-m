@@ -21,9 +21,6 @@ description: Sign with an Infineon OPTIGA Trust M chip on a Pico and prove on ch
   The board also carries `main_picowallet.py`, the previous boot file; swap them back to get picowallet.
 - `TrustMAttest` on mainnet at `0xA2b53f0c5c700E42020d91a1c0E481389dA1E197`. `attest(...)` once per
   chip, `isChipSignature(x, y, hash, r, s)` any time.
-- `Crops` on mainnet at `0x3eA4e9306a0d0B4da674C965CBB4AD4a37afc6e2`: an attested chip harvests 5 CROPS every
-  5 hours with `harvest(x, y, to, deadline, r, s)`; the chip signs `harvestDigest(keyId, to, deadline, nonce)`
-  (DOMAIN + chainid + contract + to + deadline + nonce). The device builds that digest itself (`agent.py`).
 
 ## Rules that are not obvious
 

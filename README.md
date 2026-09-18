@@ -8,34 +8,13 @@ silicon and an X.509 certificate for that key signed by Infineon. The contract h
 against Infineon's CA public key, records the chip's key, and from then on can say "yes, a real Trust M
 signed this hash".
 
-Live on mainnet: TrustMAttest [`0xA2b53f0c…dA1E197`](https://etherscan.io/address/0xA2b53f0c5c700E42020d91a1c0E481389dA1E197#code)
-and Crops [`0x3eA4e930…7afc6e2`](https://etherscan.io/address/0x3eA4e9306a0d0B4da674C965CBB4AD4a37afc6e2#code), both
-verified, with one chip attested
+Live on mainnet: [`0xA2b53f0c5c700E42020d91a1c0E481389dA1E197`](https://etherscan.io/address/0xA2b53f0c5c700E42020d91a1c0E481389dA1E197#code)
+(verified source, CA key hardcoded), with one chip attested
 ([tx](https://etherscan.io/tx/0xf554870eb078bca343e508fab2645d875f0fe3b1d52bbd0509e9cf4e9d85768b)). Its factory
-certificate is in the test. An earlier TrustMAttest lives at `0xC868770a…bbe4AB99` (same CA key, passed to the
-constructor instead of hardcoded); nothing points at it any more. dApp: [clawd-trust-m.vercel.app](https://clawd-trust-m.vercel.app).
+certificate is in the test. Want to *do* something with a proven chip? [clawd-crops](https://github.com/clawdbotatg/clawd-crops)
+lets one harvest 5 CROPS every 5 hours against this registry. dApp: [clawd-trust-m.vercel.app](https://clawd-trust-m.vercel.app).
 
 ![the dApp verifying a chip signature against mainnet](docs/dapp-verified.png)
-
-## CROPS: what a real chip can do with that
-
-`Crops.sol` is an ERC-20. A chip that TrustMAttest vouches for can harvest **5 CROPS every 5 hours**. The
-device shows a field of five plants growing from the chip's last harvest to its next allowed one. When they
-are full, press **A**: the chip signs a harvest, your wallet sends it, the contract mints.
-
-What the chip signs is bound to one deployment and one use:
-
-```
-digest = keccak256(abi.encode(DOMAIN, chainid, address(this), keyId, to, deadline, nonce))
-DOMAIN = keccak256("CROPS.harvest.v1")
-```
-
-`to` is the wallet connected on the page, so a front-runner who copies the transaction pays gas for your
-harvest; one who changes `to` fails the signature. `nonce` makes every signature one-time, `deadline` stops
-anyone sitting on one, and the 5 hour cooldown is per chip key, so one chip cannot farm with many wallets.
-Anyone may send the transaction; the chip decides who gets paid.
-
-Contracts on mainnet: TrustMAttest [`0xA2b53f0c5c700E42020d91a1c0E481389dA1E197`](https://etherscan.io/address/0xA2b53f0c5c700E42020d91a1c0E481389dA1E197#code), Crops [`0x3eA4e9306a0d0B4da674C965CBB4AD4a37afc6e2`](https://etherscan.io/address/0x3eA4e9306a0d0B4da674C965CBB4AD4a37afc6e2#code). Tests: `packages/foundry/test/Crops.t.sol`.
 
 ## How the proof works
 
@@ -90,17 +69,12 @@ yarn install && yarn start        # the page + the queue, on a laptop the Pico c
 ```
 
 Put `TRUSTM_RELAY = "http://<laptop ip>:3000"` plus `WIFI_SSID` / `WIFI_PASS` in `secrets.py` on the Pico and copy
-`firmware/*.py` over (`mpremote cp firmware/*.py :`). `main.py` runs `agent.py`: it joins WiFi, polls the
-queue, and draws the crops field between requests.
-
-- **Harvest:** connect a wallet on the page, press **Harvest 5 CROPS** when the field is full. The hat shows
-  `HARVEST 5 CROPS to 0x…`, you press **A**, the chip signs, your wallet pops up with the `harvest` transaction,
-  and after it confirms the hat shows `HARVESTED +5 CROPS` and the field resets to seeds.
-- **Sign anything:** type a message, press **Ask the chip to sign**. The hat shows the text and its hash. Press
-  **A**. The page asks mainnet, goes green, and the hat shows REAL CHIP. **B** refuses.
-
-Everything stays on your LAN; the hosted copy at [clawd-trust-m.vercel.app](https://clawd-trust-m.vercel.app)
-has no queue unless you give it `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`.
+`firmware/*.py` over (`mpremote cp firmware/*.py :`). `main.py` runs `agent.py`: it joins WiFi and polls the
+queue. Open the page, type a message, press **Ask the chip to sign**. The hat shows the text and its hash. Press
+**A**. The chip signs, the signature goes back to the page, the page asks mainnet, goes green, and tells the
+hat, which shows REAL CHIP. **B** refuses. Everything stays on your LAN; the hosted copy at
+[clawd-trust-m.vercel.app](https://clawd-trust-m.vercel.app) has no queue unless you give it
+`UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`.
 
 Over USB instead, no WiFi:
 
@@ -158,9 +132,7 @@ and [pred-main-xmc4700-kit](https://github.com/Infineon/pred-main-xmc4700-kit/tr
 
 ```
 firmware/trustm.py                     MicroPython driver: bus rules, link layer, commands
-firmware/agent.py                      boot loop: WiFi, poll the queue, sign or harvest on A, post back
-firmware/farm.py                       the crops field screens
-firmware/keccak.py                     keccak256 on the Pico, so the device builds the harvest digest itself
+firmware/agent.py                      boot loop: WiFi, poll the queue, sign on A, post back, show verdict
 firmware/main.py                       runs agent.py
 firmware/ui.py                         the hat: show text, sign on A, refuse on B, show the verdict
 firmware/lcd.py                        Pico-LCD-1.3 driver (ST7789 + keys)
@@ -169,9 +141,6 @@ packages/foundry/contracts/TrustMAttest.sol
 packages/foundry/test/TrustMAttest.t.sol   real cert, real signature, tamper cases
 packages/nextjs/app/page.tsx           the page: ask the chip, verify, attest
 packages/nextjs/app/api/sign/          the queue the Pico polls (in memory, or Upstash)
-packages/nextjs/app/api/farm/          the contract's clock for a chip, for the device and the page
-packages/nextjs/components/Farm.tsx    the field on the page: balance, growth, harvest button, history
-packages/foundry/contracts/Crops.sol   the token; harvest() checks chip, clock, and signature
 SKILL.md                               how an agent uses this
 ```
 

@@ -23,17 +23,12 @@ export async function POST(req: Request, { params }: Params) {
     r.status = "refused";
   } else if (typeof body.verdict === "boolean") {
     r.verdict = body.verdict;
-    if (hex32(body.tx)) r.tx = body.tx;
-    if (typeof body.error === "string") r.error = body.error.slice(0, 80);
   } else if (hex32(body.r) && hex32(body.s) && hex32(body.chipX) && hex32(body.chipY)) {
     Object.assign(r, { status: "signed", r: body.r, s: body.s, chipX: body.chipX, chipY: body.chipY });
-    if (r.kind === "sign") {
-      // the sign demo's verdict is a mainnet read; a harvest's verdict is the wallet's tx, posted by the page later
-      try {
-        r.verdict = await isChipSignature({ chipX: body.chipX, chipY: body.chipY, hash: r.hash, r: body.r, s: body.s });
-      } catch (e) {
-        console.error("mainnet check failed", e); // the page still runs its own read; the Pico waits for a verdict
-      }
+    try {
+      r.verdict = await isChipSignature({ chipX: body.chipX, chipY: body.chipY, hash: r.hash, r: body.r, s: body.s });
+    } catch (e) {
+      console.error("mainnet check failed", e); // the page still runs its own read; the Pico waits for a verdict
     }
   } else {
     return NextResponse.json({ error: "expected {r,s,chipX,chipY}, {refused:true} or {verdict}" }, { status: 400 });

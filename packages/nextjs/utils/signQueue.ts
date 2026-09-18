@@ -4,26 +4,15 @@
 
 export type SignRequest = {
   id: string;
-  kind: "sign" | "harvest";
-  message: string; // what the device shows; for a harvest, a description
-  hash: `0x${string}`; // the digest the chip signs
+  message: string;
+  hash: `0x${string}`;
   status: "pending" | "signed" | "refused";
   createdAt: number;
-  // harvest fields, all part of the signed digest (Crops.harvestDigest)
-  to?: `0x${string}`;
-  deadline?: number;
-  nonce?: number;
-  chainId?: number;
-  contract?: `0x${string}`;
-  // filled by the device
   r?: `0x${string}`;
   s?: `0x${string}`;
   chipX?: `0x${string}`;
   chipY?: `0x${string}`;
-  // outcome: sign → mainnet isChipSignature; harvest → the wallet's tx confirmed
-  verdict?: boolean;
-  tx?: `0x${string}`;
-  error?: string;
+  verdict?: boolean; // what mainnet said, posted by the page so the Pico can show it
 };
 
 const TTL_S = 600;
@@ -67,29 +56,9 @@ export const put = async (req: SignRequest) => {
     await redis("SET", KEY(req.id), JSON.stringify(req), "EX", TTL_S);
     if (req.status === "pending") await redis("SET", PENDING, req.id, "EX", TTL_S);
     else if ((await redis("GET", PENDING)) === req.id) await redis("DEL", PENDING);
-    if (req.kind === "harvest" && req.status === "signed" && req.to) {
-      await redis("SET", `trustm:lastsigned:${req.to.toLowerCase()}`, req.id, "EX", TTL_S);
-    }
     return;
   }
   mem.set(req.id, req);
-};
-
-// A signed harvest for this wallet that no transaction has picked up yet (started with A on the device).
-export const latestSignedHarvest = async (to: string): Promise<SignRequest | undefined> => {
-  const match = (r: SignRequest) =>
-    r.kind === "harvest" &&
-    r.status === "signed" &&
-    !r.tx &&
-    r.verdict === undefined &&
-    r.to?.toLowerCase() === to.toLowerCase();
-  if (upstash) {
-    const id = await redis("GET", `trustm:lastsigned:${to.toLowerCase()}`);
-    const r = id ? await get(id) : undefined;
-    return r && match(r) ? r : undefined;
-  }
-  sweep();
-  return [...mem.values()].filter(match).sort((a, b) => b.createdAt - a.createdAt)[0];
 };
 
 // The one request the Pico should show: the newest pending one.

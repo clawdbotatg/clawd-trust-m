@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Address } from "@scaffold-ui/components";
 import type { NextPage } from "next";
 import { encodeAbiParameters, keccak256 } from "viem";
-import { Farm } from "~~/components/Farm";
 import deployedContracts from "~~/contracts/deployedContracts";
 import { useScaffoldReadContract, useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
 
@@ -149,8 +148,6 @@ const Home: NextPage = () => {
           <Address address={CONTRACT} />
         </div>
       </div>
-
-      <Farm />
 
       <section className="card bg-base-100 shadow w-full">
         <div className="card-body gap-4">
