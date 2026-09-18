@@ -91,9 +91,16 @@ the factory certificate says "Infineon IoT Node", nothing about you.
 
 ## Hardware
 
-- Raspberry Pi Pico (any RP2040 or RP2350 board) with MicroPython.
-- Adafruit Infineon Trust M breakout, product 4351.
+The chip is the only part you can't get anywhere: **[Adafruit Infineon Trust M breakout, product 4351](https://www.adafruit.com/product/4351)**.
+The rest is stock Pico parts.
+
+- [Adafruit Trust M breakout](https://www.adafruit.com/product/4351), the chip in the photos.
+- Raspberry Pi Pico W (any RP2040 or RP2350 board works; WiFi is only for the queue) with MicroPython.
+- [Waveshare Pico-LCD-1.3](https://www.waveshare.com/wiki/Pico-LCD-1.3), the screen with the joystick and four buttons.
 - A STEMMA QT / Qwiic cable, four wires: GND, 3V3, SDA, SCL.
+- The case in the photos is the one from [picowallet](https://github.com/austintgriffith/picowallet/tree/main/case):
+  Tomas Plass's Waveshare 1.3 case STL, plus keycaps and a joystick dome in `case/out/`. The Trust M breakout
+  sits between the Pico and the hat.
 
 Wire GND to a Pico GND pin, V+ to 3V3 OUT (pin 36), SDA to GP4 (pin 6), SCL to GP5 (pin 7). Other pins
 work too: `trustm.bus(sda=, scl=)`.
