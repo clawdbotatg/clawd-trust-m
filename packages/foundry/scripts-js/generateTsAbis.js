@@ -91,7 +91,11 @@ function getDeploymentHistory(broadcastPath) {
 
 function getArtifactOfContract(contractName) {
   const outDir = join(__dirname, "..", "out");
-  const conventional = join(outDir, `${contractName}.sol`, `${contractName}.json`);
+  const conventional = join(
+    outDir,
+    `${contractName}.sol`,
+    `${contractName}.json`
+  );
   if (existsSync(conventional)) {
     return JSON.parse(readFileSync(conventional));
   }
@@ -194,7 +198,9 @@ function processAllDeployments(broadcastPath) {
         inheritedFunctions: getInheritedFunctions(artifact),
         deploymentFile: deployment.deploymentFile,
         deploymentScript: deployment.deploymentScript,
-        deployedOnBlock: deployment?.deployedOnBlock && Number(BigInt(deployment.deployedOnBlock)),
+        deployedOnBlock:
+          deployment?.deployedOnBlock &&
+          Number(BigInt(deployment.deployedOnBlock)),
       };
     }
   });
